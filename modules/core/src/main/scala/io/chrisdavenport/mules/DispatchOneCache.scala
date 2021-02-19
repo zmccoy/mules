@@ -1,7 +1,6 @@
 package io.chrisdavenport.mules
 
-import cats.effect._
-import cats.effect.concurrent._
+import cats.effect.kernel._
 import cats.effect.implicits._
 import cats.implicits._
 import scala.concurrent.duration._
@@ -41,7 +40,7 @@ final class DispatchOneCache[F[_], K, V] private[DispatchOneCache] (
 
   private val createEmptyIfUnset: K => F[Option[TryableDeferred[F, Either[Throwable, V]]]] = 
       k => Deferred.tryable[F, Either[Throwable, V]].flatMap{deferred => 
-        C.monotonic(NANOSECONDS).flatMap{ now =>
+        C.monotonic.flatMap{ now =>
         val timeout = defaultExpiration.map(ts => TimeSpec.unsafeFromNanos(now + ts.nanos))
         mapRef(k).modify{
           case None => (DispatchOneCacheItem[F, V](deferred, timeout).some, deferred.some)
@@ -84,11 +83,11 @@ final class DispatchOneCache[F[_], K, V] private[DispatchOneCache] (
    * gets the value in the system
    **/
   def lookupOrLoad(k: K, action: K => F[V]): F[V] = {
-    C.monotonic(NANOSECONDS)
+    C.monotonic
       .flatMap{now =>
         mapRef(k).modify[Option[DispatchOneCacheItem[F, V]]]{
           case s@Some(value) => 
-            if (DispatchOneCache.isExpired(now, value)){
+            if (DispatchOneCache.isExpired(now.toNanos, value)){
               (None, None)
             } else {
               (s, s)
@@ -109,8 +108,8 @@ final class DispatchOneCache[F[_], K, V] private[DispatchOneCache] (
   def insertWith(k: K, action: K => F[V]): F[Unit] = {
     for {
       defer <- Deferred.tryable[F, Either[Throwable, V]]
-      now <- Clock[F].monotonic(NANOSECONDS)
-      item = DispatchOneCacheItem(defer, defaultExpiration.map(spec => TimeSpec.unsafeFromNanos(now + spec.nanos))).some
+      now <- Clock[F].monotonic
+      item = DispatchOneCacheItem(defer, defaultExpiration.map(spec => TimeSpec.unsafeFromNanos(now.toNanos + spec.nanos))).some
       out <- mapRef(k).getAndSet(item)
         .bracketCase{oldDeferOpt => 
           action(k).flatMap[Unit]{ a =>
@@ -168,11 +167,11 @@ final class DispatchOneCache[F[_], K, V] private[DispatchOneCache] (
   } yield out
 
   def lookup(k: K): F[Option[V]] = {
-    C.monotonic(NANOSECONDS)
+    C.monotonic
       .flatMap{now =>
         mapRef(k).modify[Option[DispatchOneCacheItem[F, V]]]{
           case s@Some(value) => 
-            if (DispatchOneCache.isExpired(now, value)){
+            if (DispatchOneCache.isExpired(now.toNanos, value)){
               (None, None)
             } else {
               (s, s)

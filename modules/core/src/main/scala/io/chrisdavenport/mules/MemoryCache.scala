@@ -2,7 +2,7 @@ package io.chrisdavenport.mules
 
 import cats._
 import cats.effect._
-import cats.effect.concurrent.Ref
+import cats.effect.kernel.Ref
 import cats.effect.syntax.concurrent._
 import cats.implicits._
 import scala.concurrent.duration._
@@ -67,7 +67,7 @@ final class MemoryCache[F[_], K, V] private[MemoryCache] (
    **/
   def insertWithTimeout(optionTimeout: Option[TimeSpec])(k: K, v: V): F[Unit] = {
     for {
-      now <- C.monotonic(NANOSECONDS)
+      now <- C.monotonic
       timeout = optionTimeout.map(ts => TimeSpec.unsafeFromNanos(now + ts.nanos))
       _ <- mapRef.setKeyValue(k, MemoryCacheItem[V](v, timeout))
       _ <- onInsert(k, v)
@@ -88,8 +88,8 @@ final class MemoryCache[F[_], K, V] private[MemoryCache] (
    * The function will eagerly delete the item from the cache if it is expired.
    **/
   def lookup(k: K): F[Option[V]] = {
-    C.monotonic(NANOSECONDS)
-      .flatMap{now =>
+    C.monotonic //Was Nano
+      .flatMap{ now =>
         mapRef(k).modify[F[Option[MemoryCacheItem[V]]]]{
           case s@Some(value) => 
             if (MemoryCache.isExpired(now, value)){
@@ -117,7 +117,7 @@ final class MemoryCache[F[_], K, V] private[MemoryCache] (
    * The function will not delete the item from the cache.
    **/
   def lookupNoUpdate(k: K): F[Option[V]] = 
-    C.monotonic(NANOSECONDS)
+    C.monotonic
       .flatMap{now => 
         mapRef(k).get.map(
           _.flatMap(ci => 
@@ -217,7 +217,7 @@ final class MemoryCache[F[_], K, V] private[MemoryCache] (
    **/
   def purgeExpired: F[Unit] = {
     for {
-      now <- C.monotonic(NANOSECONDS)
+      now <- C.monotonic
       out <- purgeExpiredEntries(now)
       _ <-  out.traverse_(onDelete)
     } yield ()
@@ -296,13 +296,13 @@ object MemoryCache {
    *
    * @return an `Resource[F, Unit]` that will keep removing expired entries in the background.
    **/
-  def liftToAuto[F[_]: Concurrent: Timer, K, V](
+  def liftToAuto[F[_]: Concurrent: Temporal, K, V](
     memoryCache: MemoryCache[F, K, V],
     checkOnExpirationsEvery: TimeSpec
   ): Resource[F, Unit] = {
     def runExpiration(cache: MemoryCache[F, K, V]): F[Unit] = {
       val check = TimeSpec.toDuration(checkOnExpirationsEvery)
-      Timer[F].sleep(check) >> cache.purgeExpired >> runExpiration(cache)
+      Temporal[F].sleep(check) >> cache.purgeExpired >> runExpiration(cache)
     }
 
     Resource.make(runExpiration(memoryCache).start)(_.cancel).void

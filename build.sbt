@@ -45,14 +45,14 @@ lazy val reload = project.in(file("modules/reload"))
   )
 
 val catsV = "2.3.1"
-val catsEffectV = "2.1.4"
+val catsEffectV = "3.0.0-RC1"
 val catsCollectionV = "0.9.1"
 
 val specs2V = "4.10.6"
 val disciplineSpecs2V = "1.0.0"
 
 lazy val commonSettings = Seq(
-  scalaVersion := "2.13.1",
+  scalaVersion := "2.13.4",
   crossScalaVersions := Seq(scalaVersion.value, "2.12.10"),
 
   addCompilerPlugin("org.typelevel" %% "kind-projector" % "0.11.3" cross CrossVersion.full),
